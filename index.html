@@ -21,7 +21,6 @@
         .pasuk-content { flex-grow: 1; line-height: 1.6; }
         .num { color: #c0392b; font-weight: bold; font-size: 0.8em; margin-left: 5px; }
         
-        /* כפתור המונה */
         .counter-btn { 
             background: #fff; border: 2px solid #f1c40f; border-radius: 12px; 
             padding: 5px 8px; min-width: 45px; text-align: center; 
@@ -34,7 +33,6 @@
         .btn { padding: 12px 20px; border: none; border-radius: 30px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; }
         .btn-play { background: #2ecc71; } .btn-stop { background: #e74c3c; } .btn-reset { background: #95a5a6; }
         
-        /* חלונית פרס */
         #reward-toast { 
             position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); 
             background: rgba(255, 255, 255, 0.98); padding: 25px; border-radius: 25px; 
@@ -44,8 +42,9 @@
             min-width: 200px;
         }
         
+        /* תיקון: תמיכה גם ב-png וגם ב-jpg */
         #reward-toast img {
-            width: 100px; height: 100px; border-radius: 50%; object-fit: cover;
+            width: 120px; height: 120px; border-radius: 50%; object-fit: cover;
             border: 3px solid #f1c40f; margin-bottom: 10px; display: none;
         }
 
@@ -60,7 +59,7 @@
     </header>
 
     <div id="reward-toast">
-        <img id="reward-img" src="me.jpg" alt="Teacher">
+        <img id="reward-img" src="me.png" alt="Teacher" onerror="this.src='me.jpg'">
         <span id="reward-text">כל הכבוד!</span>
     </div>
 
@@ -81,7 +80,7 @@
         let currentAudio = null;
         let isAutoPlaying = false;
         
-        // קבצי אודיו לחיזוק
+        // טעינת קולות המשוב
         const audioGood = new Audio('good.m4a');
         const audioChamp = new Audio('champion.m4a');
 
@@ -176,33 +175,88 @@
             return sum;
         }
 
-        // --- הלוגיקה החדשה לספירה ---
+        // --- לוגיקה מעודכנת ---
         function increment(id, e) {
-            e.stopPropagation(); // מונע את הלחיצה הרגילה על השורה
+            e.stopPropagation();
             const el = document.getElementById(`cnt${id}`);
             let val = parseInt(el.innerText);
+            val++; // מעלים את המספר
             
-            // תנאי קריטי: אם פחות מ-5, חובה לנגן את האודיו
-            if (val < 5) {
-                playSingle(id); 
-            }
-            // אם 5 ומעלה - רק מעלים מספר (מצב שקט)
-
-            val++;
+            // שמירה
             el.innerText = val;
             localStorage.setItem(`ch${currentChapter}_v${id}`, val);
+
+            // בדיקה: האם מגיע פרס?
+            let pendingReward = null;
+            if (val % 10 === 0) pendingReward = "BIG";
+            else if (val % 5 === 0) pendingReward = "SMALL";
+
+            // החלטה האם לנגן:
+            // 1. אם יש פרס בדרך (5, 10, 15...) -> חובה לנגן את הפסוק, ואז את הפרס.
+            // 2. אם המספר קטן מ-5 -> חובה לנגן (שלב הלימוד).
+            // 3. אחרת -> שקט.
             
-            // בדיקת פרסים
-            if(val % 10 === 0) triggerReward("BIG"); 
-            else if(val % 5 === 0) triggerReward("SMALL");
+            if (pendingReward) {
+                // מנגן את הפסוק, ושולח לו את סוג הפרס שיפעיל כשיסיים
+                playSingle(id, false, pendingReward);
+            } else if (val <= 5) {
+                // סתם ניגון רגיל של ההתחלה
+                playSingle(id);
+            }
+        }
+
+        // פונקציית הנגן המעודכנת שיודעת לקבל "פרס ממתין"
+        function playSingle(id, auto=false, pendingReward=null) {
+            if(currentAudio) currentAudio.pause();
+            document.querySelectorAll('.pasuk').forEach(p=>p.classList.remove('playing'));
+            
+            // אם זו הפעלה אוטומטית או שיש פרס, מסמנים את השורה
+            isAutoPlaying = auto;
+            
+            const div = document.getElementById('p'+id);
+            if(div) { 
+                div.classList.add('playing'); 
+                if(auto || pendingReward) div.scrollIntoView({behavior:"smooth", block:"center"}); 
+            }
+            
+            const fileName = `${currentChapter}_${id}.m4a`;
+            currentAudio = new Audio(fileName);
+            
+            currentAudio.play().catch((e)=>{ 
+                console.log("Audio play error", e);
+                // אם לא מצא קובץ, ננסה להמשיך הלאה אם צריך
+                if(isAutoPlaying) playNext(id);
+            });
+
+            // מה קורה כשהפסוק נגמר?
+            currentAudio.onended = () => { 
+                if(div) div.classList.remove('playing');
+                
+                // עכשיו בודקים את התור:
+                if (pendingReward) {
+                    // אם היה פרס שמחכה - זה הזמן להפעיל אותו!
+                    triggerReward(pendingReward);
+                } else if(isAutoPlaying) {
+                    // אם זה היה חלק מ"נגן הכל" - ממשיכים לבא
+                    playNext(id);
+                }
+            };
+        }
+
+        let currentIdx = 0;
+        function playNext(currentId) {
+            currentIdx = verseIds.indexOf(currentId);
+            if(currentIdx < verseIds.length - 1) {
+                playSingle(verseIds[currentIdx+1], true);
+            } else {
+                isAutoPlaying = false;
+            }
         }
 
         function triggerReward(type) {
             const toast = document.getElementById('reward-toast');
             const textEl = document.getElementById('reward-text');
             const imgEl = document.getElementById('reward-img');
-
-            if(currentAudio) currentAudio.pause(); // עוצר את פסוק הלימוד כדי לשמוע את החיזוק
 
             if (type === "BIG") {
                 textEl.innerText = "👑 איזה אלוף!! 👑";
@@ -211,32 +265,14 @@
                 confetti({ particleCount: 200, spread: 120, origin: { y: 0.6 } });
             } else { 
                 textEl.innerText = "⭐ כל הכבוד! ⭐";
-                imgEl.style.display = "none"; 
+                // בחיזוק קטן (כל 5) נציג גם תמונה או רק טקסט? לבחירתך. כרגע שמתי שכן יציג
+                imgEl.style.display = "inline-block"; 
                 audioGood.play().catch(e => console.log("No audio file found"));
                 confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
             }
 
             toast.style.display = 'block';
-            setTimeout(() => { toast.style.display = 'none'; }, 2500);
-        }
-
-        let currentIdx = 0;
-        function playSingle(id, auto=false) {
-            if(currentAudio) currentAudio.pause();
-            document.querySelectorAll('.pasuk').forEach(p=>p.classList.remove('playing'));
-            isAutoPlaying = auto;
-            currentIdx = verseIds.indexOf(id);
-            const div = document.getElementById('p'+id);
-            if(div) { div.classList.add('playing'); if(auto) div.scrollIntoView({behavior:"smooth", block:"center"}); }
-            
-            currentAudio = new Audio(`${currentChapter}_${id}.m4a`);
-            currentAudio.play().catch(()=>{ if(isAutoPlaying) playNext(); });
-            currentAudio.onended = () => { if(div) div.classList.remove('playing'); if(isAutoPlaying) playNext(); };
-        }
-
-        function playNext() {
-            if(currentIdx < verseIds.length - 1) playSingle(verseIds[currentIdx+1], true);
-            else isAutoPlaying = false;
+            setTimeout(() => { toast.style.display = 'none'; }, 3500); // הארכתי קצת ל-3.5 שניות
         }
 
         function playAll() { if(verseIds.length) playSingle(verseIds[0], true); }
